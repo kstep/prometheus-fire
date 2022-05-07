@@ -1,0 +1,16 @@
+[package]
+name = "prometheus-fire-derive"
+description = "Thin prometheus wrapper to simplify metrics exposure (macros)"
+authors = ["Konstantin Stepanov <me@kstep.me>"]
+keywords = ["prometheus", "metrics", "helper"]
+license = "MIT"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = "1"

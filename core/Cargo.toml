@@ -1,0 +1,17 @@
+[package]
+name = "prometheus-fire"
+description = "Thin prometheus wrapper to simplify metrics exposure"
+authors = ["Konstantin Stepanov <me@kstep.me>"]
+keywords = ["prometheus", "metrics", "helper"]
+license = "MIT"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hyper = { version = "0.14", features = ["server"] }
+prometheus = "0.13"
+prometheus-fire-derive = { optional = true, path = "../derive" }
+
+[features]
+derive = ["prometheus-fire-derive"]
+default = ["derive"]
