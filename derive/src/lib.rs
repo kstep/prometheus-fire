@@ -147,9 +147,9 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
     let tokens = quote! {
         impl #name {
             pub fn new() -> ::std::result::Result<Self, ::prometheus::Error> {
-                Self {
+                Ok(Self {
                     #(#initializers)*
-                }
+                })
             }
 
             #(#methods)*
