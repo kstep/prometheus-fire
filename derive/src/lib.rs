@@ -19,6 +19,7 @@ pub fn derive_metrics(item: TokenStream) -> TokenStream {
 }
 
 enum MetricType {
+    IntCounter,
     IntCounterVec,
     HistogramVec,
 }
@@ -68,6 +69,8 @@ impl<'a> TryFrom<&'a Type> for MetricType {
             Ok(Self::IntCounterVec)
         } else if type_path.is_ident("HistogramVec") {
             Ok(Self::HistogramVec)
+        } else if type_path.is_ident("IntCounter") {
+            Ok(Self::IntCounter)
         } else {
             Err(syn::Error::new(value.span(), "unsupported metric type"))
         }
@@ -122,6 +125,20 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 },
                 quote! {#method_name: ::prometheus::register_int_counter_vec!(::prometheus::opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
             ),
+            MetricType::IntCounter => {
+                if metric_labels_num > 0 {
+                    return Err(syn::Error::new(span, "IntCounter metric does not support labels"));
+                }
+
+                (
+                    quote! {
+                        pub fn #method_name(&self) {
+                            self.#method_name.inc();
+                        }
+                    },
+                    quote! {#method_name: ::prometheus::register_int_counter!(#metric_name, #metric_desc)?,},
+                )
+            },
             MetricType::HistogramVec => {
                 let start_method_name = Ident::new(&format!("start_{method_name}"), field.span());
                 let observe_method_name = Ident::new(&format!("observe_{method_name}"), field.span());

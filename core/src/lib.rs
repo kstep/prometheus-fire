@@ -5,7 +5,7 @@ use hyper::{
 use prometheus::{Error, TextEncoder};
 use std::{convert::Infallible, future::Future, net::SocketAddr, pin::Pin};
 
-pub use prometheus::{HistogramVec, IntCounterVec};
+pub use prometheus::{HistogramVec, IntCounter, IntCounterVec};
 #[cfg(feature = "derive")]
 pub use prometheus_fire_derive::Metrics;
 
