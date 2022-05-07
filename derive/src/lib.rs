@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{
     group::parse_brackets,
     parse::{Parse, ParseStream},
@@ -27,13 +27,31 @@ enum MetricType {
 #[derive(Default)]
 struct MetricInfo {
     desc: Option<LitStr>,
-    labels: Option<Punctuated<Lit, Token![,]>>,
+    dims: Option<Punctuated<MetricDim, Token![,]>>,
+}
+
+struct MetricDim {
+    label: LitStr,
+    typ: Option<Ident>,
+}
+
+impl Parse for MetricDim {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let label = input.parse::<LitStr>()?;
+        let typ = if let Ok(_) = input.parse::<Token![=]>() {
+            Some(input.parse::<Ident>()?)
+        } else {
+            None
+        };
+
+        Ok(Self { label, typ })
+    }
 }
 
 impl Parse for MetricInfo {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut desc = None;
-        let mut labels = None;
+        let mut dims = None;
 
         while !input.is_empty() {
             let arg_name = input.parse::<Ident>()?;
@@ -45,7 +63,7 @@ impl Parse for MetricInfo {
                 "labels" => {
                     let _ = input.parse::<Token![=]>()?;
                     let group = parse_brackets(input)?.content;
-                    labels = Some(group.parse_terminated(Lit::parse)?);
+                    dims = Some(group.parse_terminated(MetricDim::parse)?);
                 },
                 _ => return Err(syn::Error::new_spanned(arg_name, "unsupported metric attribute")),
             }
@@ -53,7 +71,7 @@ impl Parse for MetricInfo {
             let _ = input.parse::<Token![,]>();
         }
 
-        Ok(Self { desc, labels })
+        Ok(Self { desc, dims })
     }
 }
 
@@ -105,28 +123,48 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         let metric_type = MetricType::try_from(&field.ty)?;
         let MetricInfo {
             desc: metric_desc,
-            labels: metric_labels,
+            dims: metric_dims,
         } = get_attr_args(&field, "metric").unwrap_or_default();
         let metric_desc = metric_desc
             .or_else(|| get_docs(&field).next())
             .unwrap_or_else(|| metric_name.clone());
-        let metric_labels_num = metric_labels.as_ref().map_or(0, Punctuated::len);
-        let metric_labels = metric_labels.unwrap_or_default().into_iter();
-        let metric_args: Vec<_> = (0..metric_labels_num)
-            .map(|num| Ident::new(&format!("label_{}", num), span))
+        let metric_dims = metric_dims.unwrap_or_default();
+
+        let metric_args: Vec<_> = metric_dims
+            .iter()
+            .enumerate()
+            .map(|(num, label)| {
+                let name = Ident::new(&format!("label_{}", num), label.label.span());
+                let typ = label
+                    .typ
+                    .as_ref()
+                    .map_or_else(|| quote! {impl AsRef<str>}, Ident::to_token_stream);
+                quote! {#name: #typ}
+            })
             .collect();
+
+        let metric_vars: Vec<_> = metric_dims
+            .iter()
+            .enumerate()
+            .map(|(num, label)| {
+                let name = Ident::new(&format!("label_{}", num), label.label.span());
+                quote! {#name.as_ref()}
+            })
+            .collect();
+
+        let metric_labels = metric_dims.iter().map(|label| &label.label);
 
         let (method, initializer) = match metric_type {
             MetricType::IntCounterVec => (
                 quote! {
-                    pub fn #method_name(&self, #(#metric_args: impl AsRef<str>,)*) {
-                        self.#method_name.with_label_values(&[#(#metric_args.as_ref(),)*]).inc();
+                    pub fn #method_name(&self, #(#metric_args,)*) {
+                        self.#method_name.with_label_values(&[#(#metric_vars,)*]).inc();
                     }
                 },
                 quote! {#method_name: ::prometheus::register_int_counter_vec!(::prometheus::opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
             ),
             MetricType::IntCounter => {
-                if metric_labels_num > 0 {
+                if metric_dims.len() > 0 {
                     return Err(syn::Error::new(span, "IntCounter metric does not support labels"));
                 }
 
@@ -144,12 +182,12 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 let observe_method_name = Ident::new(&format!("observe_{method_name}"), field.span());
                 (
                     quote! {
-                        pub fn #start_method_name(&self, #(#metric_args: impl AsRef<str>,)*) -> ::prometheus::HistogramTimer {
-                            self.#method_name.with_label_values(&[#(#metric_args.as_ref(),)*]).start_timer()
+                        pub fn #start_method_name(&self, #(#metric_args,)*) -> ::prometheus::HistogramTimer {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).start_timer()
                         }
 
-                        pub fn #observe_method_name(&self, #(#metric_args: impl AsRef<str>,)* time: f64) {
-                            self.#method_name.with_label_values(&[#(#metric_args.as_ref(),)*]).observe(time);
+                        pub fn #observe_method_name(&self, #(#metric_args,)* time: f64) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).observe(time);
                         }
                     },
                     quote! {#method_name: ::prometheus::register_histogram_vec!(::prometheus::histogram_opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
