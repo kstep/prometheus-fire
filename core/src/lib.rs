@@ -1,11 +1,11 @@
-use std::convert::Infallible;
-use std::future::Future;
-use std::net::SocketAddr;
+use hyper::{
+    service::{make_service_fn, service_fn},
+    Body, Method, Request, Response, Server, StatusCode,
+};
 use prometheus::{Error, TextEncoder};
-use std::pin::Pin;
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use hyper::service::{make_service_fn, service_fn};
+use std::{convert::Infallible, future::Future, net::SocketAddr, pin::Pin};
 
+pub use prometheus::{HistogramVec, IntCounterVec};
 #[cfg(feature = "derive")]
 pub use prometheus_fire_derive::Metrics;
 
@@ -15,7 +15,7 @@ pub trait MetricsService {
         TextEncoder::new().encode_to_string(&metric_families)
     }
 
-    fn serve(&self, bind: impl Into<SocketAddr>) -> Pin<Box<dyn Future<Output=()> + Send + 'static>> {
+    fn serve(&self, bind: impl Into<SocketAddr>) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let addr = bind.into();
         log::info!("running metrics endpoint at http://{addr}...");
 
@@ -39,7 +39,6 @@ pub trait MetricsService {
                 Ok(reply)
             }))
         });
-
 
         Box::pin(async move {
             if let Err(error) = Server::bind(&addr).serve(new_service).await {

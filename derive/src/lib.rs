@@ -137,8 +137,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     },
                     quote! {#method_name: ::prometheus::register_histogram_vec!(::prometheus::histogram_opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
                 )
-            },
-            //_ => return Err(syn::Error::new(span, "unsupported field type")),
+            }, //_ => return Err(syn::Error::new(span, "unsupported field type")),
         };
 
         methods.push(method);
@@ -178,8 +177,8 @@ fn get_docs<'a>(field: &'a Field) -> impl Iterator<Item = LitStr> + 'a {
         .filter_map(|attr| attr.parse_meta().ok())
         .filter_map(|meta| match meta {
             Meta::NameValue(MetaNameValue {
-                                lit: Lit::Str(ref lit), ..
-                            }) => Some(LitStr::new(&lit.value().trim(), meta.span())),
+                lit: Lit::Str(ref lit), ..
+            }) => Some(LitStr::new(&lit.value().trim(), meta.span())),
             _ => None,
         })
 }
