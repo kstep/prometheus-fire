@@ -40,8 +40,10 @@ pub trait MetricsService {
             }))
         });
 
+        let server = Server::bind(&addr).serve(new_service);
+
         Box::pin(async move {
-            if let Err(error) = Server::bind(&addr).serve(new_service).await {
+            if let Err(error) = server.await {
                 log::error!("error serving metrics: {error}");
             }
         })

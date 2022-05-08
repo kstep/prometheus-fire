@@ -9,7 +9,7 @@ use syn::{
     parse_macro_input,
     punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, Data, DeriveInput, Field, Fields, Lit, LitStr, Meta, MetaNameValue, Token, Type,
+    Attribute, Data, DeriveInput, Expr, Field, Fields, Lit, LitStr, Meta, MetaNameValue, Token, Type,
 };
 
 #[proc_macro_derive(Metrics, attributes(metric))]
@@ -33,18 +33,26 @@ struct MetricInfo {
 struct MetricDim {
     label: LitStr,
     typ: Option<Ident>,
+    expr: Option<Expr>,
 }
 
 impl Parse for MetricDim {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let label = input.parse::<LitStr>()?;
-        let typ = if let Ok(_) = input.parse::<Token![=]>() {
-            Some(input.parse::<Ident>()?)
+        let (typ, expr) = if input.parse::<Token![:]>().is_ok() {
+            (
+                Some(input.parse::<Ident>()?),
+                if input.parse::<Token![=]>().is_ok() {
+                    Some(input.parse::<Expr>()?)
+                } else {
+                    None
+                },
+            )
         } else {
-            None
+            (None, None)
         };
 
-        Ok(Self { label, typ })
+        Ok(Self { label, typ, expr })
     }
 }
 
@@ -147,8 +155,12 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
             .iter()
             .enumerate()
             .map(|(num, label)| {
-                let name = Ident::new(&format!("label_{}", num), label.label.span());
-                quote! {#name.as_ref()}
+                if let Some(expr) = &label.expr {
+                    expr.to_token_stream()
+                } else {
+                    let name = Ident::new(&format!("label_{}", num), label.label.span());
+                    quote! {#name.as_ref()}
+                }
             })
             .collect();
 
