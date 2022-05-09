@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use proc_macro2::Ident;
+use proc_macro2::{Ident, TokenTree};
 use quote::{quote, ToTokens};
 use syn::{
     group::parse_parens,
@@ -34,6 +34,22 @@ struct MetricDim {
     label: LitStr,
     typ: Option<Ident>,
     expr: Option<Expr>,
+}
+
+impl MetricDim {
+    fn expr(&self, label: &Ident) -> proc_macro2::TokenStream {
+        if let Some(ref expr) = self.expr {
+            expr.to_token_stream()
+                .into_iter()
+                .flat_map(|item| match item {
+                    TokenTree::Punct(punct) if punct.as_char() == '_' => label.to_token_stream(),
+                    other => quote! {#other},
+                })
+                .collect()
+        } else {
+            quote! {#label.as_ref()}
+        }
+    }
 }
 
 impl Parse for MetricDim {
@@ -157,12 +173,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
             .iter()
             .enumerate()
             .map(|(num, label)| {
-                if let Some(expr) = &label.expr {
-                    expr.to_token_stream()
-                } else {
-                    let name = Ident::new(&format!("label_{}", num), label.label.span());
-                    quote! {#name.as_ref()}
-                }
+                let name = Ident::new(&format!("label_{}", num), label.label.span());
+                label.expr(&name)
             })
             .collect();
 
