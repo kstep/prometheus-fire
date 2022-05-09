@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::{quote, ToTokens};
 use syn::{
-    group::parse_brackets,
+    group::parse_parens,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
@@ -38,7 +38,10 @@ struct MetricDim {
 
 impl Parse for MetricDim {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let label = input.parse::<LitStr>()?;
+        let label = input
+            .parse::<Ident>()
+            .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
+            .or_else(|_| input.parse::<LitStr>())?;
         let (typ, expr) = if input.parse::<Token![:]>().is_ok() {
             (
                 Some(input.parse::<Ident>()?),
@@ -69,8 +72,7 @@ impl Parse for MetricInfo {
                     desc = Some(input.parse()?);
                 },
                 "labels" => {
-                    let _ = input.parse::<Token![=]>()?;
-                    let group = parse_brackets(input)?.content;
+                    let group = parse_parens(input)?.content;
                     dims = Some(group.parse_terminated(MetricDim::parse)?);
                 },
                 _ => return Err(syn::Error::new_spanned(arg_name, "unsupported metric attribute")),
