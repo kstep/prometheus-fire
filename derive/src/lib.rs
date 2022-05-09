@@ -223,6 +223,14 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
 
         impl ::prometheus_fire::MetricsService for #name {}
+
+        ::lazy_static::lazy_static! {
+            pub static ref METRICS: #name = #name::new().expect("Can't create a metric");
+        }
+
+        pub fn metrics() -> &'static #name {
+            &*METRICS
+        }
     };
 
     Ok(tokens.into())
