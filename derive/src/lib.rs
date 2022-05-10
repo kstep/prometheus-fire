@@ -1,9 +1,9 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use std::collections::HashMap;
 use proc_macro2::{Ident, TokenTree};
 use quote::{quote, ToTokens};
+use std::collections::HashMap;
 use syn::{
     group::{parse_brackets, parse_parens},
     parse::{Parse, ParseStream},
@@ -202,7 +202,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let enum_match: Vec<_> = enum_def
                         .iter()
                         .map(|ident| {
-                            let name = LitStr::new(&ident.to_string().to_ascii_lowercase(), ident.span());
+                            let name = LitStr::new(&to_snake_case(&ident.to_string()), ident.span());
                             quote! {Self::#ident => #name}
                         })
                         .collect();
@@ -321,4 +321,51 @@ fn get_docs<'a>(field: &'a Field) -> impl Iterator<Item = LitStr> + 'a {
             }) => Some(LitStr::new(&lit.value().trim(), meta.span())),
             _ => None,
         })
+}
+
+fn to_snake_case(value: &str) -> String {
+    let mut start = true;
+    struct Iter(bool, bool, char);
+    impl Iter {
+        fn new(uscore: bool, ch: char) -> Self {
+            Self(uscore, true, ch.to_ascii_lowercase())
+        }
+    }
+    impl Iterator for Iter {
+        type Item = char;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.0 {
+                self.0 = false;
+                Some('_')
+            } else if self.1 {
+                self.1 = false;
+                Some(self.2)
+            } else {
+                None
+            }
+        }
+    }
+
+    value
+        .chars()
+        .flat_map(|ch| {
+            if start {
+                start = false;
+                Iter::new(false, ch.to_ascii_lowercase())
+            } else {
+                if ch.is_ascii_uppercase() {
+                    Iter::new(true, ch)
+                } else {
+                    Iter::new(false, ch)
+                }
+            }
+        })
+        .collect::<String>()
+}
+
+#[test]
+fn test_to_snake_case() {
+    assert_eq!(to_snake_case(""), "");
+    assert_eq!(to_snake_case("HelloWorldOfCamelCase"), "hello_world_of_camel_case");
 }
