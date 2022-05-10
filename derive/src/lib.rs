@@ -1,10 +1,11 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use std::collections::HashMap;
 use proc_macro2::{Ident, TokenTree};
 use quote::{quote, ToTokens};
 use syn::{
-    group::parse_parens,
+    group::{parse_brackets, parse_parens},
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
@@ -34,6 +35,7 @@ struct MetricDim {
     label: LitStr,
     typ: Option<Type>,
     expr: Option<Expr>,
+    enum_def: Option<Punctuated<Ident, Token![|]>>,
 }
 
 impl MetricDim {
@@ -41,11 +43,9 @@ impl MetricDim {
         if let Some(ref expr) = self.expr {
             expr.to_token_stream()
                 .into_iter()
-                .flat_map(|item| {
-                    match item {
-                        TokenTree::Ident(ident) if ident.to_string() == "_" => label.to_token_stream(),
-                        other => quote! {#other},
-                    }
+                .flat_map(|item| match item {
+                    TokenTree::Ident(ident) if ident.to_string() == "_" => label.to_token_stream(),
+                    other => quote! {#other},
                 })
                 .collect()
         } else {
@@ -60,20 +60,29 @@ impl Parse for MetricDim {
             .parse::<Ident>()
             .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
             .or_else(|_| input.parse::<LitStr>())?;
-        let (typ, expr) = if input.parse::<Token![:]>().is_ok() {
+        let (typ, def, expr) = if input.parse::<Token![:]>().is_ok() {
             (
                 Some(input.parse::<Type>()?),
-                if input.parse::<Token![=]>().is_ok() {
-                    Some(input.parse::<Expr>()?)
-                } else {
-                    None
-                },
+                parse_brackets(&input)
+                    .ok()
+                    .map(|group| group.content.parse_terminated(Ident::parse))
+                    .transpose()?,
+                input
+                    .parse::<Token![=]>()
+                    .ok()
+                    .map(|_| input.parse::<Expr>())
+                    .transpose()?,
             )
         } else {
-            (None, None)
+            (None, None, None)
         };
 
-        Ok(Self { label, typ, expr })
+        Ok(Self {
+            label,
+            typ,
+            enum_def: def,
+            expr,
+        })
     }
 }
 
@@ -144,6 +153,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let mut methods = Vec::new();
     let mut initializers = Vec::new();
+    let mut typedefs = HashMap::new();
 
     for field in fields {
         let method_name = field.ident.clone().expect("method name");
@@ -179,6 +189,41 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 label.expr(&name)
             })
             .collect();
+
+        typedefs.extend(
+            metric_dims
+                .iter()
+                .filter_map(|dim| dim.enum_def.as_ref().zip(dim.typ.as_ref()))
+                .map(|(enum_def, typ)| {
+                    let enum_name = match typ {
+                        Type::Path(path) => path.path.get_ident().unwrap().clone(),
+                        _ => unimplemented!("enum derivation does not work for complex types"),
+                    };
+                    let enum_match: Vec<_> = enum_def
+                        .iter()
+                        .map(|ident| {
+                            let name = LitStr::new(&ident.to_string().to_ascii_lowercase(), ident.span());
+                            quote! {Self::#ident => #name}
+                        })
+                        .collect();
+                    let enum_def = enum_def.into_iter();
+
+                    (enum_name.clone(), quote! {
+                        #[derive(Debug, PartialEq, Eq)]
+                        pub enum #enum_name {
+                            #(#enum_def,)*
+                        }
+
+                        impl AsRef<str> for #typ {
+                            fn as_ref(&self) -> &str {
+                                match self {
+                                    #(#enum_match,)*
+                                }
+                            }
+                        }
+                    })
+                }),
+        );
 
         let metric_labels = metric_dims.iter().map(|label| &label.label);
 
@@ -227,6 +272,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         initializers.push(initializer);
     }
 
+    let typedefs: Vec<_> = typedefs.into_values().collect();
+
     let tokens = quote! {
         impl #name {
             pub fn new() -> ::std::result::Result<Self, ::prometheus_fire::Error> {
@@ -239,6 +286,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
 
         impl ::prometheus_fire::MetricsService for #name {}
+
+        #(#typedefs)*
 
         ::prometheus_fire::lazy_static! {
             pub static ref METRICS: #name = #name::new().expect("Can't create a metric");
