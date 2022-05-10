@@ -2,10 +2,15 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response, Server, StatusCode,
 };
-use prometheus::{Error, TextEncoder};
+use prometheus::TextEncoder;
 use std::{convert::Infallible, future::Future, net::SocketAddr, pin::Pin};
 
-pub use prometheus::{HistogramVec, IntCounter, IntCounterVec};
+pub use lazy_static::lazy_static;
+pub use prometheus::{
+    histogram_opts, opts, register_histogram_vec, register_int_counter, register_int_counter_vec, Error,
+    HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
+};
+
 #[cfg(feature = "derive")]
 pub use prometheus_fire_derive::Metrics;
 

@@ -25,14 +25,14 @@ enum MetricType {
 }
 
 #[derive(Default)]
-struct MetricInfo {
+struct MetricArgs {
     desc: Option<LitStr>,
     dims: Option<Punctuated<MetricDim, Token![,]>>,
 }
 
 struct MetricDim {
     label: LitStr,
-    typ: Option<Ident>,
+    typ: Option<Type>,
     expr: Option<Expr>,
 }
 
@@ -41,9 +41,11 @@ impl MetricDim {
         if let Some(ref expr) = self.expr {
             expr.to_token_stream()
                 .into_iter()
-                .flat_map(|item| match item {
-                    TokenTree::Punct(punct) if punct.as_char() == '_' => label.to_token_stream(),
-                    other => quote! {#other},
+                .flat_map(|item| {
+                    match item {
+                        TokenTree::Ident(ident) if ident.to_string() == "_" => label.to_token_stream(),
+                        other => quote! {#other},
+                    }
                 })
                 .collect()
         } else {
@@ -60,7 +62,7 @@ impl Parse for MetricDim {
             .or_else(|_| input.parse::<LitStr>())?;
         let (typ, expr) = if input.parse::<Token![:]>().is_ok() {
             (
-                Some(input.parse::<Ident>()?),
+                Some(input.parse::<Type>()?),
                 if input.parse::<Token![=]>().is_ok() {
                     Some(input.parse::<Expr>()?)
                 } else {
@@ -75,7 +77,7 @@ impl Parse for MetricDim {
     }
 }
 
-impl Parse for MetricInfo {
+impl Parse for MetricArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut desc = None;
         let mut dims = None;
@@ -147,7 +149,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         let method_name = field.ident.clone().expect("method name");
         let metric_name = LitStr::new(&method_name.to_string(), method_name.span());
         let metric_type = MetricType::try_from(&field.ty)?;
-        let MetricInfo {
+        let MetricArgs {
             desc: metric_desc,
             dims: metric_dims,
         } = get_attr_args(&field, "metric").unwrap_or_default();
@@ -164,7 +166,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 let typ = label
                     .typ
                     .as_ref()
-                    .map_or_else(|| quote! {impl AsRef<str>}, Ident::to_token_stream);
+                    .map_or_else(|| quote! {impl AsRef<str>}, Type::to_token_stream);
                 quote! {#name: #typ}
             })
             .collect();
@@ -187,7 +189,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                         self.#method_name.with_label_values(&[#(#metric_vars,)*]).inc();
                     }
                 },
-                quote! {#method_name: ::prometheus::register_int_counter_vec!(::prometheus::opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
+                quote! {#method_name: ::prometheus_fire::register_int_counter_vec!(::prometheus_fire::opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
             ),
             MetricType::IntCounter => {
                 if metric_dims.len() > 0 {
@@ -200,7 +202,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.inc();
                         }
                     },
-                    quote! {#method_name: ::prometheus::register_int_counter!(#metric_name, #metric_desc)?,},
+                    quote! {#method_name: ::prometheus_fire::register_int_counter!(#metric_name, #metric_desc)?,},
                 )
             },
             MetricType::HistogramVec => {
@@ -208,7 +210,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 let observe_method_name = Ident::new(&format!("observe_{method_name}"), field.span());
                 (
                     quote! {
-                        pub fn #start_method_name(&self, #(#metric_args,)*) -> ::prometheus::HistogramTimer {
+                        pub fn #start_method_name(&self, #(#metric_args,)*) -> ::prometheus_fire::HistogramTimer {
                             self.#method_name.with_label_values(&[#(#metric_vars,)*]).start_timer()
                         }
 
@@ -216,7 +218,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.with_label_values(&[#(#metric_vars,)*]).observe(time);
                         }
                     },
-                    quote! {#method_name: ::prometheus::register_histogram_vec!(::prometheus::histogram_opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
+                    quote! {#method_name: ::prometheus_fire::register_histogram_vec!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
                 )
             }, //_ => return Err(syn::Error::new(span, "unsupported field type")),
         };
@@ -227,7 +229,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let tokens = quote! {
         impl #name {
-            pub fn new() -> ::std::result::Result<Self, ::prometheus::Error> {
+            pub fn new() -> ::std::result::Result<Self, ::prometheus_fire::Error> {
                 Ok(Self {
                     #(#initializers)*
                 })
@@ -238,7 +240,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
         impl ::prometheus_fire::MetricsService for #name {}
 
-        ::lazy_static::lazy_static! {
+        ::prometheus_fire::lazy_static! {
             pub static ref METRICS: #name = #name::new().expect("Can't create a metric");
         }
 
