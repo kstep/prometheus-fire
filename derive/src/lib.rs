@@ -209,7 +209,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let enum_def = enum_def.into_iter();
 
                     (enum_name.clone(), quote! {
-                        #[derive(Debug, PartialEq, Eq)]
+                        #[derive(Debug, PartialEq, Eq, Copy, Clone)]
                         pub enum #enum_name {
                             #(#enum_def,)*
                         }
