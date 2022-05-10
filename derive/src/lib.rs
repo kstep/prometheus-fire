@@ -44,7 +44,7 @@ impl MetricDim {
             expr.to_token_stream()
                 .into_iter()
                 .flat_map(|item| match item {
-                    TokenTree::Ident(ident) if ident.to_string() == "_" => label.to_token_stream(),
+                    TokenTree::Ident(ident) if ident == "_" => label.to_token_stream(),
                     other => quote! {#other},
                 })
                 .collect()
@@ -352,13 +352,9 @@ fn to_snake_case(value: &str) -> String {
         .flat_map(|ch| {
             if start {
                 start = false;
-                Iter::new(false, ch.to_ascii_lowercase())
+                Iter::new(false, ch)
             } else {
-                if ch.is_ascii_uppercase() {
-                    Iter::new(true, ch)
-                } else {
-                    Iter::new(false, ch)
-                }
+                Iter::new(ch.is_ascii_uppercase(), ch)
             }
         })
         .collect::<String>()
