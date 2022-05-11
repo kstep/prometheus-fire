@@ -4,7 +4,7 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal, TokenTree};
 use quote::{quote, ToTokens, TokenStreamExt};
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use syn::{
     group::{parse_brackets, parse_parens},
     parse::{Parse, ParseStream},
@@ -32,7 +32,8 @@ enum MetricType {
 struct MetricGlobalArgs {
     global: Option<Ident>,
     func: Option<Ident>,
-    labels: Option<Punctuated<MetricStaticDim, Token![,]>>,
+    dims: Option<Punctuated<MetricDim, Token![,]>>,
+    const_labels: Option<Punctuated<MetricStaticDim, Token![,]>>,
     subsystem: Option<LitStr>,
     namespace: Option<LitStr>,
 }
@@ -140,7 +141,8 @@ impl Parse for MetricGlobalArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut global = None;
         let mut func = None;
-        let mut labels = None;
+        let mut const_labels = None;
+        let mut dims = None;
         let mut namespace = None;
         let mut subsystem = None;
 
@@ -158,9 +160,13 @@ impl Parse for MetricGlobalArgs {
                     let value = input.parse::<LitStr>()?;
                     func = Some(Ident::new(&value.value(), value.span()));
                 },
+                "const_labels" => {
+                    let group = parse_parens(input)?.content;
+                    const_labels = Some(group.parse_terminated(MetricStaticDim::parse)?);
+                },
                 "labels" => {
                     let group = parse_parens(input)?.content;
-                    labels = Some(group.parse_terminated(MetricStaticDim::parse)?);
+                    dims = Some(group.parse_terminated(MetricDim::parse)?);
                 },
                 "namespace" => {
                     let _ = input.parse::<Token![=]>()?;
@@ -179,7 +185,8 @@ impl Parse for MetricGlobalArgs {
         Ok(Self {
             global,
             func,
-            labels,
+            dims,
+            const_labels,
             namespace,
             subsystem,
         })
@@ -291,7 +298,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
     let MetricGlobalArgs {
         global: global_name,
         func: func_name,
-        labels: const_labels,
+        dims: common_dims,
+        const_labels,
         namespace,
         subsystem,
     } = get_attr_args(&input.attrs, "metric")?.unwrap_or_default();
@@ -319,6 +327,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
             Some(quote! {.const_labels(const_labels.clone())}),
         )
     });
+
+    let common_dims = common_dims.unwrap_or_default();
 
     let data = match input.data {
         Data::Struct(struct_) => struct_,
@@ -353,64 +363,59 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
             .unwrap_or_else(|| metric_name.clone());
         let metric_dims = metric_dims.unwrap_or_default();
 
-        let metric_args: Vec<_> = metric_dims
-            .iter()
-            .enumerate()
-            .map(|(num, label)| {
-                let name = Ident::new(&format!("label_{}", num), label.label.span());
-                let typ = label
-                    .typ
-                    .as_ref()
-                    .map_or_else(|| quote! {impl AsRef<str>}, Type::to_token_stream);
-                quote! {#name: #typ}
-            })
-            .collect();
+        let mut metric_args = Vec::new();
+        let mut metric_vars = Vec::new();
+        let mut metric_labels = Vec::new();
 
-        let metric_vars: Vec<_> = metric_dims
-            .iter()
-            .enumerate()
-            .map(|(num, label)| {
-                let name = Ident::new(&format!("label_{}", num), label.label.span());
-                label.expr(&name)
-            })
-            .collect();
+        for (num, dim) in common_dims.iter().chain(metric_dims.iter()).enumerate() {
+            let name = Ident::new(&format!("label_{}", num), dim.label.span());
+            let typ = dim
+                .typ
+                .as_ref()
+                .map_or_else(|| quote! {impl AsRef<str>}, Type::to_token_stream);
 
-        typedefs.extend(
-            metric_dims
-                .iter()
-                .filter_map(|dim| dim.enum_def.as_ref().zip(dim.typ.as_ref()))
-                .map(|(enum_def, typ)| {
-                    let enum_name = match typ {
-                        Type::Path(path) => path.path.get_ident().unwrap().clone(),
-                        _ => unimplemented!("enum derivation does not work for complex types"),
-                    };
-                    let enum_match: Vec<_> = enum_def
-                        .iter()
-                        .map(|ident| {
-                            let name = LitStr::new(&to_snake_case(&ident.to_string()), ident.span());
-                            quote! {Self::#ident => #name}
-                        })
-                        .collect();
-                    let enum_def = enum_def.into_iter();
+            metric_labels.push(&dim.label);
+            metric_vars.push(dim.expr(&name));
+            metric_args.push(quote! {#name: #typ});
 
-                    (enum_name.clone(), quote! {
-                        #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-                        pub enum #enum_name {
-                            #(#enum_def,)*
-                        }
+            if let Some((enum_def, typ)) = dim.enum_def.as_ref().zip(dim.typ.as_ref()) {
+                let enum_name = match typ {
+                    Type::Path(path) => path.path.get_ident().unwrap().clone(),
+                    _ => unimplemented!("enum derivation does not work for complex types"),
+                };
 
-                        impl AsRef<str> for #typ {
-                            fn as_ref(&self) -> &str {
-                                match self {
-                                    #(#enum_match,)*
+                match typedefs.entry(enum_name.clone()) {
+                    Entry::Vacant(place) => {
+                        let enum_match: Vec<_> = enum_def
+                            .iter()
+                            .map(|ident| {
+                                let name = LitStr::new(&to_snake_case(&ident.to_string()), ident.span());
+                                quote! {Self::#ident => #name}
+                            })
+                            .collect();
+                        let enum_def = enum_def.into_iter();
+
+                        place.insert(quote! {
+                            #[derive(Debug, PartialEq, Eq, Copy, Clone)]
+                            pub enum #enum_name {
+                                #(#enum_def,)*
+                            }
+
+                            impl AsRef<str> for #typ {
+                                fn as_ref(&self) -> &str {
+                                    match self {
+                                        #(#enum_match,)*
+                                    }
                                 }
                             }
-                        }
-                    })
-                }),
-        );
-
-        let metric_labels = metric_dims.iter().map(|label| &label.label);
+                        });
+                    },
+                    Entry::Occupied(_) => {
+                        return Err(syn::Error::new_spanned(&dim.label, "duplicate enum type definition"));
+                    },
+                }
+            }
+        }
 
         let (method, initializer) = match metric_type {
             MetricType::IntCounterVec => {

@@ -3,14 +3,14 @@ use prometheus_fire::{HistogramVec, IntCounter, IntCounterVec, Metrics};
 pub struct Pubkey(String);
 
 #[derive(Metrics)]
-#[metric(global = "METRICS", getter = "metrics", subsystem = "notifier", namespace = "global", labels(event_type = "receive", "channel" = "test"))]
+#[metric(global = "METRICS", getter = "metrics", subsystem = "notifier", namespace = "global", const_labels(event_type = "receive", "channel" = "test"))]
 pub struct Metrics {
     /// Quantity of all pushes
     #[metric(labels(client_id: &Pubkey = &_.0, service: Service[Fcm|Apn], device_type))]
     push_qty: IntCounterVec,
 
     /// Time of push processing
-    #[metric(labels(client_id: &Pubkey = &_.0, service: Service[Fcm|Apn], device_type))]
+    #[metric(labels(client_id: &Pubkey = &_.0, service, device_type))]
     push_time: HistogramVec,
 
     #[metric(desc = "Quantity of listener service reconnects")]
