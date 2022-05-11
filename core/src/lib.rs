@@ -7,8 +7,8 @@ use std::{convert::Infallible, future::Future, net::SocketAddr, pin::Pin};
 
 pub use lazy_static::lazy_static;
 pub use prometheus::{
-    histogram_opts, opts, register_histogram_vec, register_int_counter, register_int_counter_vec, Error,
-    HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
+    exponential_buckets, histogram_opts, labels, linear_buckets, opts, register_histogram_vec, register_int_counter,
+    register_int_counter_vec, Error, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
 };
 
 #[cfg(feature = "derive")]

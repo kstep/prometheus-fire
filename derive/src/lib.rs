@@ -1,8 +1,9 @@
+extern crate core;
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, TokenTree};
-use quote::{quote, ToTokens};
+use proc_macro2::{Ident, Literal, TokenTree};
+use quote::{quote, ToTokens, TokenStreamExt};
 use std::collections::HashMap;
 use syn::{
     group::{parse_brackets, parse_parens},
@@ -10,8 +11,10 @@ use syn::{
     parse_macro_input,
     punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, Data, DeriveInput, Expr, Field, Fields, Lit, LitStr, Meta, MetaNameValue, Token, Type,
+    Attribute, Data, DeriveInput, Expr, Fields, Lit, LitFloat, LitInt, LitStr, Meta, MetaNameValue, Token, Type,
 };
+
+static UNKNOWN_ATTR: &str = "unsupported metric attribute";
 
 #[proc_macro_derive(Metrics, attributes(metric))]
 pub fn derive_metrics(item: TokenStream) -> TokenStream {
@@ -26,9 +29,30 @@ enum MetricType {
 }
 
 #[derive(Default)]
+struct MetricGlobalArgs {
+    global: Option<Ident>,
+    func: Option<Ident>,
+    labels: Option<Punctuated<MetricStaticDim, Token![,]>>,
+    subsystem: Option<LitStr>,
+    namespace: Option<LitStr>,
+}
+
+struct MetricStaticDim {
+    label: LitStr,
+    value: LitStr,
+}
+
+enum HistBuckets {
+    List(Punctuated<LitNumber, Token![,]>),
+    Lin(LitNumber, LitNumber, LitInt),
+    Exp(LitNumber, LitNumber, LitInt),
+}
+
+#[derive(Default)]
 struct MetricArgs {
     desc: Option<LitStr>,
     dims: Option<Punctuated<MetricDim, Token![,]>>,
+    buckets: Option<HistBuckets>,
 }
 
 struct MetricDim {
@@ -36,6 +60,130 @@ struct MetricDim {
     typ: Option<Type>,
     expr: Option<Expr>,
     enum_def: Option<Punctuated<Ident, Token![|]>>,
+}
+
+enum LitNumber {
+    Float(LitFloat),
+    Int(LitInt),
+}
+
+impl Parse for LitNumber {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let lit = input.parse::<Lit>()?;
+        match lit {
+            Lit::Float(value) => Ok(Self::Float(value)),
+            Lit::Int(value) => Ok(Self::Int(value)),
+            _ => Err(syn::Error::new_spanned(lit, "a number expected")),
+        }
+    }
+}
+
+impl ToTokens for LitNumber {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            Self::Float(token) => token.to_tokens(tokens),
+            Self::Int(token) => tokens.append(Literal::f64_suffixed(token.base10_parse::<f64>().unwrap())),
+        }
+    }
+}
+
+impl Parse for HistBuckets {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek2(Token![..]) {
+            let start = input.parse::<LitNumber>()?;
+            let _ = input.parse::<Token![..]>()?;
+            let width = input.parse::<LitNumber>()?;
+            let step = input.parse::<Token![;]>().and_then(|_| input.parse::<LitInt>())?;
+            Ok(Self::Lin(start, width, step))
+        } else if input.peek2(Token![::]) {
+            let start = input.parse::<LitNumber>()?;
+            let _ = input.parse::<Token![::]>()?;
+            let width = input.parse::<LitNumber>()?;
+            let step = input.parse::<Token![;]>().and_then(|_| input.parse::<LitInt>())?;
+            Ok(Self::Exp(start, width, step))
+        } else {
+            input.parse_terminated(LitNumber::parse).map(Self::List)
+        }
+    }
+}
+
+impl ToTokens for HistBuckets {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            Self::Lin(start, width, count) => {
+                tokens.extend(quote! {::prometheus_fire::linear_buckets(#start, #width, #count)?})
+            },
+            Self::Exp(start, factor, count) => {
+                tokens.extend(quote! {::prometheus_fire::exponential_buckets(#start, #factor, #count)?})
+            },
+            Self::List(list) => tokens.extend(quote! {vec![#list]}),
+        }
+    }
+}
+
+impl Parse for MetricStaticDim {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let label = input
+            .parse::<Ident>()
+            .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
+            .or_else(|_| input.parse::<LitStr>())?;
+
+        let _ = input.parse::<Token![=]>()?;
+
+        let value = input.parse::<LitStr>()?;
+
+        Ok(Self { label, value })
+    }
+}
+
+impl Parse for MetricGlobalArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut global = None;
+        let mut func = None;
+        let mut labels = None;
+        let mut namespace = None;
+        let mut subsystem = None;
+
+        while !input.is_empty() {
+            let arg_name = input.parse::<Ident>()?;
+
+            match &*arg_name.to_string() {
+                "global" => {
+                    let _ = input.parse::<Token![=]>()?;
+                    let value = input.parse::<LitStr>()?;
+                    global = Some(Ident::new(&value.value(), value.span()));
+                },
+                "func" => {
+                    let _ = input.parse::<Token![=]>()?;
+                    let value = input.parse::<LitStr>()?;
+                    func = Some(Ident::new(&value.value(), value.span()));
+                },
+                "labels" => {
+                    let group = parse_parens(input)?.content;
+                    labels = Some(group.parse_terminated(MetricStaticDim::parse)?);
+                },
+                "namespace" => {
+                    let _ = input.parse::<Token![=]>()?;
+                    namespace = Some(input.parse()?);
+                },
+                "subsystem" => {
+                    let _ = input.parse::<Token![=]>()?;
+                    subsystem = Some(input.parse()?);
+                },
+                _ => return Err(syn::Error::new_spanned(arg_name, UNKNOWN_ATTR)),
+            }
+
+            let _ = input.parse::<Token![,]>();
+        }
+
+        Ok(Self {
+            global,
+            func,
+            labels,
+            namespace,
+            subsystem,
+        })
+    }
 }
 
 impl MetricDim {
@@ -60,7 +208,7 @@ impl Parse for MetricDim {
             .parse::<Ident>()
             .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
             .or_else(|_| input.parse::<LitStr>())?;
-        let (typ, def, expr) = if input.parse::<Token![:]>().is_ok() {
+        let (typ, enum_def, expr) = if input.parse::<Token![:]>().is_ok() {
             (
                 Some(input.parse::<Type>()?),
                 parse_brackets(&input)
@@ -80,7 +228,7 @@ impl Parse for MetricDim {
         Ok(Self {
             label,
             typ,
-            enum_def: def,
+            enum_def,
             expr,
         })
     }
@@ -90,6 +238,7 @@ impl Parse for MetricArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut desc = None;
         let mut dims = None;
+        let mut buckets = None;
 
         while !input.is_empty() {
             let arg_name = input.parse::<Ident>()?;
@@ -102,13 +251,17 @@ impl Parse for MetricArgs {
                     let group = parse_parens(input)?.content;
                     dims = Some(group.parse_terminated(MetricDim::parse)?);
                 },
-                _ => return Err(syn::Error::new_spanned(arg_name, "unsupported metric attribute")),
+                "buckets" => {
+                    let group = parse_parens(input)?.content;
+                    buckets = Some(group.parse()?);
+                },
+                _ => return Err(syn::Error::new_spanned(arg_name, UNKNOWN_ATTR)),
             }
 
             let _ = input.parse::<Token![,]>();
         }
 
-        Ok(Self { desc, dims })
+        Ok(Self { desc, dims, buckets })
     }
 }
 
@@ -135,6 +288,37 @@ impl<'a> TryFrom<&'a Type> for MetricType {
 fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
     let span = input.span();
     let name = input.ident;
+    let MetricGlobalArgs {
+        global: global_name,
+        func: func_name,
+        labels: const_labels,
+        namespace,
+        subsystem,
+    } = get_attr_args(&input.attrs, "metric")?.unwrap_or_default();
+
+    let namespace = namespace.map(|name| {
+        quote! {.namespace(#name)}
+    });
+
+    let subsystem = subsystem.map(|name| {
+        quote! {.subsystem(#name)}
+    });
+
+    let (const_labels_def, const_labels) = const_labels.map_or((None, None), |labels| {
+        let labels = labels
+            .iter()
+            .map(|MetricStaticDim { label, value }| quote! {(#label.to_string(), #value.to_string())});
+        (
+            Some(quote! {
+                let const_labels = {
+                    let mut labels = ::std::collections::HashMap::<String, String>::new();
+                    labels.extend([#(#labels,)*]);
+                    labels
+                };
+            }),
+            Some(quote! {.const_labels(const_labels.clone())}),
+        )
+    });
 
     let data = match input.data {
         Data::Struct(struct_) => struct_,
@@ -162,9 +346,10 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         let MetricArgs {
             desc: metric_desc,
             dims: metric_dims,
-        } = get_attr_args(&field, "metric").unwrap_or_default();
+            buckets: hist_buckets,
+        } = get_attr_args(&field.attrs, "metric")?.unwrap_or_default();
         let metric_desc = metric_desc
-            .or_else(|| get_docs(&field).next())
+            .or_else(|| get_docs(&field.attrs).next())
             .unwrap_or_else(|| metric_name.clone());
         let metric_dims = metric_dims.unwrap_or_default();
 
@@ -228,17 +413,34 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         let metric_labels = metric_dims.iter().map(|label| &label.label);
 
         let (method, initializer) = match metric_type {
-            MetricType::IntCounterVec => (
-                quote! {
-                    pub fn #method_name(&self, #(#metric_args,)*) {
-                        self.#method_name.with_label_values(&[#(#metric_vars,)*]).inc();
-                    }
-                },
-                quote! {#method_name: ::prometheus_fire::register_int_counter_vec!(::prometheus_fire::opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
-            ),
+            MetricType::IntCounterVec => {
+                if hist_buckets.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "IntCounterVec metric does not support buckets",
+                    ));
+                }
+                (
+                    quote! {
+                        pub fn #method_name(&self, #(#metric_args,)*) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).inc();
+                        }
+                    },
+                    quote! {#method_name: ::prometheus_fire::register_int_counter_vec!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem, &[#(#metric_labels,)*])?,},
+                )
+            },
             MetricType::IntCounter => {
                 if metric_dims.len() > 0 {
-                    return Err(syn::Error::new(span, "IntCounter metric does not support labels"));
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "IntCounter metric does not support labels",
+                    ));
+                }
+                if hist_buckets.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "IntCounter metric does not support buckets",
+                    ));
                 }
 
                 (
@@ -247,7 +449,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.inc();
                         }
                     },
-                    quote! {#method_name: ::prometheus_fire::register_int_counter!(#metric_name, #metric_desc)?,},
+                    quote! {#method_name: ::prometheus_fire::register_int_counter!(::prometheus_fire::opts!(#metric_name, #metric_desc) #namespace #subsystem)?,},
                 )
             },
             MetricType::HistogramVec => {
@@ -263,9 +465,9 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.with_label_values(&[#(#metric_vars,)*]).observe(time);
                         }
                     },
-                    quote! {#method_name: ::prometheus_fire::register_histogram_vec!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc), &[#(#metric_labels,)*])?,},
+                    quote! {#method_name: ::prometheus_fire::register_histogram_vec!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc, #hist_buckets) #const_labels #namespace #subsystem, &[#(#metric_labels,)*])?,},
                 )
-            }, //_ => return Err(syn::Error::new(span, "unsupported field type")),
+            }, //_ => return Err(syn::Error::new_spanned(field, "unsupported field type")),
         };
 
         methods.push(method);
@@ -274,9 +476,27 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let typedefs: Vec<_> = typedefs.into_values().collect();
 
+    let global_def = global_name.map(|ref_name| {
+        quote! {
+            ::prometheus_fire::lazy_static! {
+                pub static ref #ref_name: #name = #name::new().expect("Can't create a metric");
+            }
+        }
+    });
+
+    let func_def = func_name.map(|f_name| {
+        quote! {
+            pub fn #f_name() -> &'static #name {
+                &*METRICS
+            }
+        }
+    });
+
     let tokens = quote! {
         impl #name {
             pub fn new() -> ::std::result::Result<Self, ::prometheus_fire::Error> {
+                #const_labels_def
+
                 Ok(Self {
                     #(#initializers)*
                 })
@@ -289,29 +509,24 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
         #(#typedefs)*
 
-        ::prometheus_fire::lazy_static! {
-            pub static ref METRICS: #name = #name::new().expect("Can't create a metric");
-        }
+        #global_def
 
-        pub fn metrics() -> &'static #name {
-            &*METRICS
-        }
+        #func_def
     };
 
     Ok(tokens.into())
 }
 
-fn find_attr<'a, 'b>(field: &'a Field, name: &'b str) -> Option<&'a Attribute> {
-    field.attrs.iter().find(|attr| attr.path.is_ident(name))
+fn find_attr<'a, 'b>(attrs: &'a [Attribute], name: &'b str) -> Option<&'a Attribute> {
+    attrs.iter().find(|attr| attr.path.is_ident(name))
 }
 
-fn get_attr_args<T: Parse>(field: &Field, name: &str) -> Option<T> {
-    find_attr(field, name).and_then(|attr| attr.parse_args::<T>().ok())
+fn get_attr_args<T: Parse>(attrs: &[Attribute], name: &str) -> Result<Option<T>, syn::Error> {
+    find_attr(attrs, name).map(|attr| attr.parse_args::<T>()).transpose()
 }
 
-fn get_docs<'a>(field: &'a Field) -> impl Iterator<Item = LitStr> + 'a {
-    field
-        .attrs
+fn get_docs<'a>(attrs: &'a [Attribute]) -> impl Iterator<Item = LitStr> + 'a {
+    attrs
         .iter()
         .filter(|attr| attr.path.is_ident("doc"))
         .filter_map(|attr| attr.parse_meta().ok())
