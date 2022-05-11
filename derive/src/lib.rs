@@ -153,7 +153,7 @@ impl Parse for MetricGlobalArgs {
                     let value = input.parse::<LitStr>()?;
                     global = Some(Ident::new(&value.value(), value.span()));
                 },
-                "func" => {
+                "getter" => {
                     let _ = input.parse::<Token![=]>()?;
                     let value = input.parse::<LitStr>()?;
                     func = Some(Ident::new(&value.value(), value.span()));

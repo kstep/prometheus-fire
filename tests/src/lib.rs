@@ -3,7 +3,7 @@ use prometheus_fire::{HistogramVec, IntCounter, IntCounterVec, Metrics};
 pub struct Pubkey(String);
 
 #[derive(Metrics)]
-#[metric(global = "METRICS", func = "metrics", subsystem = "notifier", namespace = "global", labels(event_type = "receive", "channel" = "test"))]
+#[metric(global = "METRICS", getter = "metrics", subsystem = "notifier", namespace = "global", labels(event_type = "receive", "channel" = "test"))]
 pub struct Metrics {
     /// Quantity of all pushes
     #[metric(labels(client_id: &Pubkey = &_.0, service: Service[Fcm|Apn], device_type))]
