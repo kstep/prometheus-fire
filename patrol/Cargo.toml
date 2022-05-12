@@ -1,0 +1,31 @@
+[package]
+name = "prometheus-fire-patrol"
+description = "Thin prometheus patrol service to gather metrics from several backends"
+authors = ["Konstantin Stepanov <me@kstep.me>"]
+keywords = ["prometheus", "metrics", "helper"]
+license = "MIT"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1"
+dotenv = "0.15"
+env_logger = "0.9.0"
+envy = "0.4"
+futures-util = "0.3.21"
+hyper = { version = "0.14", features = [
+  "http1",
+  "client",
+  "server",
+  "tcp",
+  "stream",
+] }
+hyper-tls = "0.5.0"
+log = "0.4.17"
+serde = { version = "1", features = ["derive"] }
+serde_with = "1.13.0"
+thiserror = "1.0.31"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio-stream = "0.1.8"

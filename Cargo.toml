@@ -1,6 +1,2 @@
 [workspace]
-members = [
-    "core",
-    "derive",
-    "tests",
-]
+members = ["core", "derive", "patrol", "tests"]

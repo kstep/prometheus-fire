@@ -8,7 +8,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hyper = { version = "0.14", features = ["server", "tcp", "http1"], optional = true }
+hyper = { version = "0.14", features = [
+  "server",
+  "tcp",
+  "http1",
+], optional = true }
 jsonrpc-derive = { version = "18", optional = true }
 jsonrpc-core = { version = "18", optional = true }
 lazy_static = "1.4.0"
@@ -19,5 +23,10 @@ prometheus-fire-derive = { optional = true, path = "../derive" }
 [features]
 derive = ["prometheus-fire-derive"]
 server = ["hyper"]
-jsonrpc = ["derive", "jsonrpc-derive", "jsonrpc-core", "prometheus-fire-derive/jsonrpc"]
+jsonrpc = [
+  "derive",
+  "jsonrpc-derive",
+  "jsonrpc-core",
+  "prometheus-fire-derive/jsonrpc",
+]
 default = ["derive"]
