@@ -3,8 +3,8 @@ use prometheus_fire::{HistogramVec, IntCounter, IntCounterVec, Metrics};
 pub struct Pubkey(String);
 
 #[derive(Metrics)]
-#[metric(global = "METRICS", getter = "metrics", subsystem = "notifier", namespace = "global", const_labels(event_type = "receive", "channel" = "test"))]
-pub struct Metrics {
+#[metric(global = "MY_METRICS", getter = "my_metrics", subsystem = "notifier", namespace = "global", const_labels(event_type = "receive", "channel" = "test"))]
+pub struct MyMetrics {
     /// Quantity of all pushes
     #[metric(labels(client_id: &Pubkey = &_.0, service: Service[Fcm|Apn], device_type))]
     push_qty: IntCounterVec,
@@ -20,7 +20,7 @@ pub struct Metrics {
 #[test]
 fn test_metrics() {
     use prometheus_fire::MetricsService;
-    let metrics = metrics();
+    let metrics = my_metrics();
     metrics.listener_reconnects_qty();
     metrics.push_qty(&Pubkey("abc".into()), Service::Fcm, "android");
     metrics.observe_push_time(&Pubkey("def".into()), Service::Apn, "ios", 0.5);

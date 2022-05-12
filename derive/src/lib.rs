@@ -481,7 +481,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let typedefs: Vec<_> = typedefs.into_values().collect();
 
-    let global_def = global_name.map(|ref_name| {
+    let global_def = global_name.clone().map(|ref_name| {
         quote! {
             ::prometheus_fire::lazy_static! {
                 pub static ref #ref_name: #name = #name::new().expect("Can't create a metric");
@@ -489,10 +489,10 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
     });
 
-    let func_def = func_name.map(|f_name| {
+    let func_def = func_name.zip(global_name).map(|(f_name, ref_name)| {
         quote! {
             pub fn #f_name() -> &'static #name {
-                &*METRICS
+                &*#ref_name
             }
         }
     });
