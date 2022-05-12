@@ -498,16 +498,26 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
     });
 
     #[cfg(feature = "jsonrpc")]
-    let jsonrpc_impl = quote! {
-        impl ::prometheus_fire::MetricsRpc for #name {
-            fn metrics(&self) -> ::std::result::Result<String, ::prometheus_fire::JsonRpcError> {
-                <Self as ::prometheus_fire::MetricsService>::gather().map_err(|error| {
-                    ::prometheus_fire::JsonRpcError {
-                        code: ::prometheus_fire::JsonRpcErrorCode::InternalError,
-                        message: error.to_string(),
-                        data: None
-                    }
-                })
+    let jsonrpc_impl = {
+        let jsonrpc_name = Ident::new(&format!("{name}RpcImpl"), name.span());
+        quote! {
+            pub struct #jsonrpc_name;
+            impl ::prometheus_fire::MetricsRpc for #jsonrpc_name {
+                fn metrics(&self) -> ::std::result::Result<String, ::prometheus_fire::JsonRpcError> {
+                    <#name as ::prometheus_fire::MetricsService>::gather().map_err(|error| {
+                        ::prometheus_fire::JsonRpcError {
+                            code: ::prometheus_fire::JsonRpcErrorCode::InternalError,
+                            message: error.to_string(),
+                            data: None
+                        }
+                    })
+                }
+            }
+
+            impl #name {
+                pub fn rpc_impl(&self) -> #jsonrpc_name {
+                    #jsonrpc_name
+                }
             }
         }
     };

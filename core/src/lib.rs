@@ -14,7 +14,8 @@ pub use prometheus_fire_derive::Metrics;
 
 #[cfg(feature = "jsonrpc")]
 #[jsonrpc_derive::rpc(server)]
-pub trait MetricsRpc: MetricsService {
+pub trait MetricsRpc {
+    #[rpc(name = "metrics")]
     fn metrics(&self) -> jsonrpc_core::Result<String>;
 }
 
