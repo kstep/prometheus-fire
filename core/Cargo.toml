@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hyper = { version = "0.14", features = ["server", "tcp", "http1"] }
+hyper = { version = "0.14", features = ["server", "tcp", "http1"], optional = true }
 lazy_static = "1.4.0"
 log = "0.4"
 prometheus = "0.13"
@@ -16,4 +16,5 @@ prometheus-fire-derive = { optional = true, path = "../derive" }
 
 [features]
 derive = ["prometheus-fire-derive"]
+server = ["hyper"]
 default = ["derive"]

@@ -1,9 +1,4 @@
-use hyper::{
-    service::{make_service_fn, service_fn},
-    Body, Method, Request, Response, Server, StatusCode,
-};
 use prometheus::TextEncoder;
-use std::{convert::Infallible, future::Future, net::SocketAddr, pin::Pin};
 
 pub use lazy_static::lazy_static;
 pub use prometheus::{
@@ -20,7 +15,17 @@ pub trait MetricsService {
         TextEncoder::new().encode_to_string(&metric_families)
     }
 
-    fn serve(&self, bind: impl Into<SocketAddr>) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+    #[cfg(feature = "server")]
+    fn serve(
+        &self,
+        bind: impl Into<std::net::SocketAddr>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        use hyper::{
+            service::{make_service_fn, service_fn},
+            Body, Method, Request, Response, Server, StatusCode,
+        };
+        use std::convert::Infallible;
+
         let addr = bind.into();
         log::info!("running metrics endpoint at http://{addr}...");
 
