@@ -6,8 +6,17 @@ pub use prometheus::{
     register_int_counter_vec, Error, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
 };
 
+#[cfg(feature = "jsonrpc")]
+pub use jsonrpc_core::{Error as JsonRpcError, ErrorCode as JsonRpcErrorCode};
+
 #[cfg(feature = "derive")]
 pub use prometheus_fire_derive::Metrics;
+
+#[cfg(feature = "jsonrpc")]
+#[jsonrpc_derive::rpc(server)]
+pub trait MetricsRpc: MetricsService {
+    fn metrics(&self) -> jsonrpc_core::Result<String>;
+}
 
 pub trait MetricsService {
     fn gather() -> Result<String, Error> {
