@@ -456,7 +456,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.inc();
                         }
                     },
-                    quote! {#method_name: ::prometheus_fire::register_int_counter!(::prometheus_fire::opts!(#metric_name, #metric_desc) #namespace #subsystem)?,},
+                    quote! {#method_name: ::prometheus_fire::register_int_counter!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem)?,},
                 )
             },
             MetricType::HistogramVec => {
@@ -496,7 +496,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.observe(time);
                         }
                     },
-                    quote! {#method_name: ::prometheus_fire::register_histogram!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc, #hist_buckets) #namespace #subsystem)?,},
+                    quote! {#method_name: ::prometheus_fire::register_histogram!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc, #hist_buckets) #const_labels #namespace #subsystem)?,},
                 )
             },
             MetricType::IntGauge => {
@@ -519,7 +519,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                             self.#method_name.set(value);
                         }
                     },
-                    quote! {#method_name: ::prometheus_fire::register_int_gauge!(::prometheus_fire::opts!(#metric_name, #metric_desc) #namespace #subsystem)?,},
+                    quote! {#method_name: ::prometheus_fire::register_int_gauge!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem)?,},
                 )
             },
             MetricType::IntGaugeVec => {
