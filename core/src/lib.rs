@@ -3,8 +3,8 @@ use prometheus::TextEncoder;
 pub use lazy_static::lazy_static;
 pub use prometheus::{
     exponential_buckets, histogram_opts, labels, linear_buckets, opts, register_histogram, register_histogram_vec,
-    register_int_counter, register_int_counter_vec, Error, Histogram, HistogramTimer, HistogramVec, IntCounter,
-    IntCounterVec,
+    register_int_counter, register_int_counter_vec, register_int_gauge, register_int_gauge_vec, Error, Histogram,
+    HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 
 #[cfg(feature = "jsonrpc")]

@@ -24,8 +24,10 @@ pub fn derive_metrics(item: TokenStream) -> TokenStream {
 }
 
 enum MetricType {
+    IntGauge,
     IntCounter,
     Histogram,
+    IntGaugeVec,
     IntCounterVec,
     HistogramVec,
 }
@@ -126,10 +128,7 @@ impl ToTokens for HistBuckets {
 
 impl Parse for MetricStaticDim {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let label = input
-            .parse::<Ident>()
-            .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
-            .or_else(|_| input.parse::<LitStr>())?;
+        let label = parse_label(input)?;
 
         let _ = input.parse::<Token![=]>()?;
 
@@ -138,6 +137,8 @@ impl Parse for MetricStaticDim {
         Ok(Self { label, value })
     }
 }
+
+impl MetricStaticDim {}
 
 impl Parse for MetricGlobalArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -213,10 +214,8 @@ impl MetricDim {
 
 impl Parse for MetricDim {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let label = input
-            .parse::<Ident>()
-            .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
-            .or_else(|_| input.parse::<LitStr>())?;
+        let label = parse_label(input)?;
+
         let (typ, enum_def, expr) = if input.parse::<Token![:]>().is_ok() {
             (
                 Some(input.parse::<Type>()?),
@@ -288,6 +287,8 @@ impl<'a> TryFrom<&'a Type> for MetricType {
             n if n == "IntCounter" => Ok(Self::IntCounter),
             n if n == "HistogramVec" => Ok(Self::HistogramVec),
             n if n == "Histogram" => Ok(Self::Histogram),
+            n if n == "IntGauge" => Ok(Self::IntGauge),
+            n if n == "IntGaugeVec" => Ok(Self::IntGaugeVec),
             _ => Err(syn::Error::new(value.span(), "unsupported metric type")),
         }
     }
@@ -498,6 +499,46 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     quote! {#method_name: ::prometheus_fire::register_histogram!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc, #hist_buckets) #namespace #subsystem)?,},
                 )
             },
+            MetricType::IntGauge => {
+                if metric_dims.len() > 0 {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "IntGauge metric does not support labels",
+                    ));
+                }
+                if hist_buckets.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "IntGauge metric does not support buckets",
+                    ));
+                }
+
+                (
+                    quote! {
+                        pub fn #method_name(&self, value: i64) {
+                            self.#method_name.set(value);
+                        }
+                    },
+                    quote! {#method_name: ::prometheus_fire::register_int_gauge!(::prometheus_fire::opts!(#metric_name, #metric_desc) #namespace #subsystem)?,},
+                )
+            },
+            MetricType::IntGaugeVec => {
+                if hist_buckets.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "IntGaugeVec metric does not support buckets",
+                    ));
+                }
+
+                (
+                    quote! {
+                        pub fn #method_name(&self, #(#metric_args,)*, value: i64) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).set(value);
+                        }
+                    },
+                    quote! {#method_name: ::prometheus_fire::register_int_gauge_vec!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem, &[#(#metric_labels,)*])?,},
+                )
+            },
         };
 
         methods.push(method);
@@ -596,6 +637,13 @@ fn get_docs<'a>(attrs: &'a [Attribute]) -> impl Iterator<Item = LitStr> + 'a {
             }) => Some(LitStr::new(&lit.value().trim(), meta.span())),
             _ => None,
         })
+}
+
+fn parse_label(input: ParseStream) -> syn::Result<LitStr> {
+    input
+        .parse::<Ident>()
+        .map(|ident| LitStr::new(&ident.to_string(), ident.span()))
+        .or_else(|_| input.parse::<LitStr>())
 }
 
 fn to_snake_case(value: &str) -> String {
