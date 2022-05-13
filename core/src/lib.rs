@@ -2,8 +2,9 @@ use prometheus::TextEncoder;
 
 pub use lazy_static::lazy_static;
 pub use prometheus::{
-    exponential_buckets, histogram_opts, labels, linear_buckets, opts, register_histogram_vec, register_int_counter,
-    register_int_counter_vec, Error, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
+    exponential_buckets, histogram_opts, labels, linear_buckets, opts, register_histogram, register_histogram_vec,
+    register_int_counter, register_int_counter_vec, Error, Histogram, HistogramTimer, HistogramVec, IntCounter,
+    IntCounterVec,
 };
 
 #[cfg(feature = "jsonrpc")]

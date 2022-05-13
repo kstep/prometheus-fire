@@ -12,6 +12,7 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     Attribute, Data, DeriveInput, Expr, Fields, Lit, LitFloat, LitInt, LitStr, Meta, MetaNameValue, Token, Type,
+    TypePath,
 };
 
 static UNKNOWN_ATTR: &str = "unsupported metric attribute";
@@ -24,6 +25,7 @@ pub fn derive_metrics(item: TokenStream) -> TokenStream {
 
 enum MetricType {
     IntCounter,
+    Histogram,
     IntCounterVec,
     HistogramVec,
 }
@@ -275,19 +277,18 @@ impl Parse for MetricArgs {
 impl<'a> TryFrom<&'a Type> for MetricType {
     type Error = syn::Error;
     fn try_from(value: &'a Type) -> Result<Self, Self::Error> {
-        let type_path = match value {
-            Type::Path(path) => &path.path,
-            _ => return Err(syn::Error::new(value.span(), "unsupported type")),
-        };
+        let type_name = (match value {
+            Type::Path(TypePath { path, .. }) => path.get_ident(),
+            _ => None,
+        })
+        .ok_or_else(|| syn::Error::new(value.span(), "unsupported type"))?;
 
-        if type_path.is_ident("IntCounterVec") {
-            Ok(Self::IntCounterVec)
-        } else if type_path.is_ident("HistogramVec") {
-            Ok(Self::HistogramVec)
-        } else if type_path.is_ident("IntCounter") {
-            Ok(Self::IntCounter)
-        } else {
-            Err(syn::Error::new(value.span(), "unsupported metric type"))
+        match type_name {
+            n if n == "IntCounterVec" => Ok(Self::IntCounterVec),
+            n if n == "IntCounter" => Ok(Self::IntCounter),
+            n if n == "HistogramVec" => Ok(Self::HistogramVec),
+            n if n == "Histogram" => Ok(Self::Histogram),
+            _ => Err(syn::Error::new(value.span(), "unsupported metric type")),
         }
     }
 }
@@ -472,7 +473,31 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     },
                     quote! {#method_name: ::prometheus_fire::register_histogram_vec!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc, #hist_buckets) #const_labels #namespace #subsystem, &[#(#metric_labels,)*])?,},
                 )
-            }, //_ => return Err(syn::Error::new_spanned(field, "unsupported field type")),
+            },
+            MetricType::Histogram => {
+                if metric_dims.len() > 0 {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "Histogram metric does not support labels",
+                    ));
+                }
+
+                let start_method_name = Ident::new(&format!("start_{method_name}"), field.span());
+                let observe_method_name = Ident::new(&format!("observe_{method_name}"), field.span());
+
+                (
+                    quote! {
+                        pub fn #start_method_name(&self) -> ::prometheus_fire::HistogramTimer {
+                            self.#method_name.start_timer()
+                        }
+
+                        pub fn #observe_method_name(&self, time: f64) {
+                            self.#method_name.observe(time);
+                        }
+                    },
+                    quote! {#method_name: ::prometheus_fire::register_histogram!(::prometheus_fire::histogram_opts!(#metric_name, #metric_desc, #hist_buckets) #namespace #subsystem)?,},
+                )
+            },
         };
 
         methods.push(method);
