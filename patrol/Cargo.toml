@@ -4,7 +4,7 @@ description = "Thin prometheus patrol service to gather metrics from several bac
 authors = ["Konstantin Stepanov <me@kstep.me>"]
 keywords = ["prometheus", "metrics", "helper"]
 license = "MIT"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
