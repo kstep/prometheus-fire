@@ -3,7 +3,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal, TokenTree};
-use quote::{quote, ToTokens, TokenStreamExt};
+use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use std::collections::{hash_map::Entry, HashMap};
 use syn::{
     group::{parse_brackets, parse_parens},
@@ -394,7 +394,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         let mut metric_labels = Vec::new();
 
         for (num, dim) in common_dims.iter().chain(metric_dims.iter()).enumerate() {
-            let name = Ident::new(&format!("label_{}", num), dim.label.span());
+            let name = format_ident!("label_{}", num);
             let typ = dim
                 .typ
                 .as_ref()
@@ -452,7 +452,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     ));
                 }
                 let add_methods = add_methods.then(|| {
-                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
+                    let add_method_name = format_ident!("{method_name}_add");
 
                     quote! {
                         pub fn #add_method_name(&self, #(#metric_args,)* value: impl TryInto<u64>) {
@@ -487,7 +487,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 }
 
                 let add_methods = add_methods.then(|| {
-                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
+                    let add_method_name = format_ident!("{method_name}_add");
 
                     quote! {
                         pub fn #add_method_name(&self, value: impl TryInto<u64>) {
@@ -508,8 +508,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 )
             },
             MetricType::HistogramVec => {
-                let start_method_name = Ident::new(&format!("start_{method_name}"), field.span());
-                let observe_method_name = Ident::new(&format!("observe_{method_name}"), field.span());
+                let start_method_name = format_ident!("start_{method_name}");
+                let observe_method_name = format_ident!("observe_{method_name}");
                 (
                     quote! {
                         pub fn #start_method_name(&self, #(#metric_args,)*) -> ::prometheus_fire::HistogramTimer {
@@ -531,8 +531,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     ));
                 }
 
-                let start_method_name = Ident::new(&format!("start_{method_name}"), field.span());
-                let observe_method_name = Ident::new(&format!("observe_{method_name}"), field.span());
+                let start_method_name = format_ident!("start_{method_name}");
+                let observe_method_name = format_ident!("observe_{method_name}");
 
                 (
                     quote! {
@@ -562,8 +562,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 }
 
                 let add_methods = add_methods.then(|| {
-                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
-                    let sub_method_name = Ident::new(&format!("{method_name}_sub"), method_name.span());
+                    let add_method_name = format_ident!("{method_name}_add");
+                    let sub_method_name = format_ident!("{method_name}_sub");
 
                     quote! {
                         pub fn #add_method_name(&self, value: impl TryInto<i64>) {
@@ -596,8 +596,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                 }
 
                 let add_methods = add_methods.then(|| {
-                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
-                    let sub_method_name = Ident::new(&format!("{method_name}_sub"), method_name.span());
+                    let add_method_name = format_ident!("{method_name}_add");
+                    let sub_method_name = format_ident!("{method_name}_sub");
 
                     quote! {
                         pub fn #add_method_name(&self, #(#metric_args,)* value: impl TryInto<i64>) {
@@ -647,7 +647,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
     #[cfg(feature = "jsonrpc")]
     let jsonrpc_impl = {
-        let jsonrpc_name = Ident::new(&format!("{name}RpcImpl"), name.span());
+        let jsonrpc_name = format_ident!("{name}RpcImpl");
         quote! {
             pub struct #jsonrpc_name;
             impl ::prometheus_fire::MetricsRpc for #jsonrpc_name {
