@@ -455,8 +455,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
 
                     quote! {
-                        pub fn #add_method_name(&self, #(#metric_args,)* value: impl Into<u64>) {
-                            self.#method_name.with_lable_values(&[#(#metric_vars,)*]).inc_by(value.into());
+                        pub fn #add_method_name(&self, #(#metric_args,)* value: impl TryInto<u64>) {
+                            self.#method_name.with_lable_values(&[#(#metric_vars,)*]).inc_by(value.try_into().unwrap_or(0));
                         }
                     }
                 });
@@ -490,8 +490,8 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
 
                     quote! {
-                        pub fn #add_method_name(&self, value: impl Into<u64>) {
-                            self.#method_name.inc_by(value.into());
+                        pub fn #add_method_name(&self, value: impl TryInto<u64>) {
+                            self.#method_name.inc_by(value.try_into().unwrap_or(0));
                         }
                     }
                 });
@@ -566,12 +566,12 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let sub_method_name = Ident::new(&format!("{method_name}_sub"), method_name.span());
 
                     quote! {
-                        pub fn #add_method_name(&self, value: impl Into<i64>) {
-                            self.#method_name.add(value.into());
+                        pub fn #add_method_name(&self, value: impl TryInto<i64>) {
+                            self.#method_name.add(value.try_into().unwrap_or(0));
                         }
 
-                        pub fn #sub_method_name(&self, value: impl Into<i64>) {
-                            self.#method_name.sub(value.into());
+                        pub fn #sub_method_name(&self, value: impl TryInto<i64>) {
+                            self.#method_name.sub(value.try_into().unwrap_or(0));
                         }
                     }
                 });
@@ -600,12 +600,12 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let sub_method_name = Ident::new(&format!("{method_name}_sub"), method_name.span());
 
                     quote! {
-                        pub fn #add_method_name(&self, #(#metric_args,)* value: impl Into<i64>) {
-                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).add(value.into());
+                        pub fn #add_method_name(&self, #(#metric_args,)* value: impl TryInto<i64>) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).add(value.try_into().unwrap_or(0));
                         }
 
-                        pub fn #sub_method_name(&self, #(#metric_args,)* value: impl Into<i64>) {
-                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).sub(value.into());
+                        pub fn #sub_method_name(&self, #(#metric_args,)* value: impl TryInto<i64>) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).sub(value.try_into().unwrap_or(0));
                         }
                     }
                 });
