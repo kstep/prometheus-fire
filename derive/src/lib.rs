@@ -23,6 +23,15 @@ pub fn derive_metrics(item: TokenStream) -> TokenStream {
     expand_metrics(input).unwrap_or_else(|error| error.to_compile_error().into())
 }
 
+macro_rules! matches_opt {
+    ($expr:expr, $pattern:pat => $value:expr) => {
+        match $expr {
+            $pattern => Some($value),
+            _ => None,
+        }
+    };
+}
+
 enum MetricType {
     IntGauge,
     IntCounter,
@@ -276,11 +285,9 @@ impl Parse for MetricArgs {
 impl<'a> TryFrom<&'a Type> for MetricType {
     type Error = syn::Error;
     fn try_from(value: &'a Type) -> Result<Self, Self::Error> {
-        let type_name = (match value {
-            Type::Path(TypePath { path, .. }) => path.get_ident(),
-            _ => None,
-        })
-        .ok_or_else(|| syn::Error::new(value.span(), "unsupported type"))?;
+        let type_name = matches_opt!(value, Type::Path(TypePath { path, .. }) => path.get_ident())
+            .flatten()
+            .ok_or_else(|| syn::Error::new_spanned(value, "unsupported type"))?;
 
         match type_name {
             n if n == "IntCounterVec" => Ok(Self::IntCounterVec),
@@ -289,7 +296,7 @@ impl<'a> TryFrom<&'a Type> for MetricType {
             n if n == "Histogram" => Ok(Self::Histogram),
             n if n == "IntGauge" => Ok(Self::IntGauge),
             n if n == "IntGaugeVec" => Ok(Self::IntGaugeVec),
-            _ => Err(syn::Error::new(value.span(), "unsupported metric type")),
+            _ => Err(syn::Error::new_spanned(value, "unsupported metric type")),
         }
     }
 }
@@ -631,11 +638,8 @@ fn get_docs<'a>(attrs: &'a [Attribute]) -> impl Iterator<Item = LitStr> + 'a {
         .iter()
         .filter(|attr| attr.path.is_ident("doc"))
         .filter_map(|attr| attr.parse_meta().ok())
-        .filter_map(|meta| match meta {
-            Meta::NameValue(MetaNameValue {
-                lit: Lit::Str(ref lit), ..
-            }) => Some(LitStr::new(&lit.value().trim(), meta.span())),
-            _ => None,
+        .filter_map(|meta| {
+            matches_opt!(meta, Meta::NameValue(MetaNameValue { lit: Lit::Str(ref lit), .. }) => LitStr::new(&lit.value().trim(), meta.span()))
         })
 }
 
