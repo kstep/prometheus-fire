@@ -49,6 +49,7 @@ struct MetricGlobalArgs {
     const_labels: Option<Punctuated<MetricStaticDim, Token![,]>>,
     subsystem: Option<LitStr>,
     namespace: Option<LitStr>,
+    add_methods: bool,
 }
 
 struct MetricStaticDim {
@@ -148,8 +149,6 @@ impl Parse for MetricStaticDim {
     }
 }
 
-impl MetricStaticDim {}
-
 impl Parse for MetricGlobalArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut global = None;
@@ -158,6 +157,7 @@ impl Parse for MetricGlobalArgs {
         let mut dims = None;
         let mut namespace = None;
         let mut subsystem = None;
+        let mut add_methods = false;
 
         while !input.is_empty() {
             let arg_name = input.parse::<Ident>()?;
@@ -189,6 +189,9 @@ impl Parse for MetricGlobalArgs {
                     let _ = input.parse::<Token![=]>()?;
                     subsystem = Some(input.parse()?);
                 },
+                "add_methods" => {
+                    add_methods = true;
+                },
                 _ => return Err(syn::Error::new_spanned(arg_name, UNKNOWN_ATTR)),
             }
 
@@ -202,6 +205,7 @@ impl Parse for MetricGlobalArgs {
             const_labels,
             namespace,
             subsystem,
+            add_methods,
         })
     }
 }
@@ -321,6 +325,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         const_labels,
         namespace,
         subsystem,
+        add_methods: add_all_methods,
     } = get_attr_args(&input.attrs, "metric")?.unwrap_or_default();
 
     let namespace = namespace.map(|name| {
@@ -378,6 +383,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
             buckets: hist_buckets,
             add_methods,
         } = get_attr_args(&field.attrs, "metric")?.unwrap_or_default();
+        let add_methods = add_all_methods || add_methods;
         let metric_desc = metric_desc
             .or_else(|| get_docs(&field.attrs).next())
             .unwrap_or_else(|| metric_name.clone());
