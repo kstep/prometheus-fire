@@ -67,6 +67,7 @@ struct MetricArgs {
     desc: Option<LitStr>,
     dims: Option<Punctuated<MetricDim, Token![,]>>,
     buckets: Option<HistBuckets>,
+    add_methods: bool,
 }
 
 struct MetricDim {
@@ -256,6 +257,7 @@ impl Parse for MetricArgs {
         let mut desc = None;
         let mut dims = None;
         let mut buckets = None;
+        let mut add_methods = false;
 
         while !input.is_empty() {
             let arg_name = input.parse::<Ident>()?;
@@ -272,13 +274,21 @@ impl Parse for MetricArgs {
                     let group = parse_parens(input)?.content;
                     buckets = Some(group.parse()?);
                 },
+                "add_methods" => {
+                    add_methods = true;
+                },
                 _ => return Err(syn::Error::new_spanned(arg_name, UNKNOWN_ATTR)),
             }
 
             let _ = input.parse::<Token![,]>();
         }
 
-        Ok(Self { desc, dims, buckets })
+        Ok(Self {
+            desc,
+            dims,
+            buckets,
+            add_methods,
+        })
     }
 }
 
@@ -366,6 +376,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
             desc: metric_desc,
             dims: metric_dims,
             buckets: hist_buckets,
+            add_methods,
         } = get_attr_args(&field.attrs, "metric")?.unwrap_or_default();
         let metric_desc = metric_desc
             .or_else(|| get_docs(&field.attrs).next())
@@ -434,11 +445,23 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                         "IntCounterVec metric does not support buckets",
                     ));
                 }
+                let add_methods = add_methods.then(|| {
+                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
+
+                    quote! {
+                        pub fn #add_method_name(&self, #(#metric_args,)* value: impl Into<u64>) {
+                            self.#method_name.with_lable_values(&[#(#metric_vars,)*]).inc_by(value.into());
+                        }
+                    }
+                });
+
                 (
                     quote! {
                         pub fn #method_name(&self, #(#metric_args,)*) {
                             self.#method_name.with_label_values(&[#(#metric_vars,)*]).inc();
                         }
+
+                        #add_methods
                     },
                     quote! {#method_name: ::prometheus_fire::register_int_counter_vec!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem, &[#(#metric_labels,)*])?,},
                 )
@@ -457,11 +480,23 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     ));
                 }
 
+                let add_methods = add_methods.then(|| {
+                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
+
+                    quote! {
+                        pub fn #add_method_name(&self, value: impl Into<u64>) {
+                            self.#method_name.inc_by(value.into());
+                        }
+                    }
+                });
+
                 (
                     quote! {
                         pub fn #method_name(&self) {
                             self.#method_name.inc();
                         }
+
+                        #add_methods
                     },
                     quote! {#method_name: ::prometheus_fire::register_int_counter!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem)?,},
                 )
@@ -520,11 +555,28 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     ));
                 }
 
+                let add_methods = add_methods.then(|| {
+                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
+                    let sub_method_name = Ident::new(&format!("{method_name}_sub"), method_name.span());
+
+                    quote! {
+                        pub fn #add_method_name(&self, value: impl Into<i64>) {
+                            self.#method_name.add(value.into());
+                        }
+
+                        pub fn #sub_method_name(&self, value: impl Into<i64>) {
+                            self.#method_name.sub(value.into());
+                        }
+                    }
+                });
+
                 (
                     quote! {
                         pub fn #method_name(&self, value: i64) {
                             self.#method_name.set(value);
                         }
+
+                        #add_methods
                     },
                     quote! {#method_name: ::prometheus_fire::register_int_gauge!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem)?,},
                 )
@@ -537,11 +589,28 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     ));
                 }
 
+                let add_methods = add_methods.then(|| {
+                    let add_method_name = Ident::new(&format!("{method_name}_add"), method_name.span());
+                    let sub_method_name = Ident::new(&format!("{method_name}_sub"), method_name.span());
+
+                    quote! {
+                        pub fn #add_method_name(&self, #(#metric_args,)* value: impl Into<i64>) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).add(value.into());
+                        }
+
+                        pub fn #sub_method_name(&self, #(#metric_args,)* value: impl Into<i64>) {
+                            self.#method_name.with_label_values(&[#(#metric_vars,)*]).sub(value.into());
+                        }
+                    }
+                });
+
                 (
                     quote! {
                         pub fn #method_name(&self, #(#metric_args,)*, value: i64) {
                             self.#method_name.with_label_values(&[#(#metric_vars,)*]).set(value);
                         }
+
+                        #add_methods
                     },
                     quote! {#method_name: ::prometheus_fire::register_int_gauge_vec!(::prometheus_fire::opts!(#metric_name, #metric_desc) #const_labels #namespace #subsystem, &[#(#metric_labels,)*])?,},
                 )

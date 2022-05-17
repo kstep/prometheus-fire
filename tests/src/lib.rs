@@ -13,7 +13,7 @@ pub struct MyMetrics {
     #[metric(labels(client_id: &Pubkey = &_.0, service, device_type))]
     push_time: HistogramVec,
 
-    #[metric(desc = "Quantity of listener service reconnects")]
+    #[metric(desc = "Quantity of listener service reconnects", add_methods)]
     listener_reconnects_qty: IntCounter,
 }
 
@@ -28,7 +28,7 @@ fn test_metrics() {
     metrics.observe_push_time(&Pubkey("def".into()), Service::Apn, "ios", 5.0);
     metrics.observe_push_time(&Pubkey("def".into()), Service::Apn, "ios", 100.0);
 
-    let data = Metrics::gather().expect("metrics gathered");
+    let data = MyMetrics::gather().expect("metrics gathered");
 
     println!("{data}");
 
@@ -37,7 +37,7 @@ fn test_metrics() {
         r###"
 # HELP global_notifier_listener_reconnects_qty Quantity of listener service reconnects
 # TYPE global_notifier_listener_reconnects_qty counter
-global_notifier_listener_reconnects_qty 1
+global_notifier_listener_reconnects_qty{channel="test",event_type="receive"} 1
 # HELP global_notifier_push_qty Quantity of all pushes
 # TYPE global_notifier_push_qty counter
 global_notifier_push_qty{channel="test",client_id="abc",device_type="android",event_type="receive",service="fcm"} 1
