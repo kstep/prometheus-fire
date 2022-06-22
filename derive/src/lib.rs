@@ -6,11 +6,12 @@ use proc_macro2::{Ident, Literal, TokenTree};
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use std::collections::{hash_map::Entry, HashMap};
 use syn::{
-    group::{parse_brackets, parse_parens},
+    bracketed, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
     spanned::Spanned,
+    token::Bracket,
     Attribute, Data, DeriveInput, Expr, Fields, Lit, LitFloat, LitInt, LitStr, Meta, MetaNameValue, Token, Type,
     TypePath,
 };
@@ -174,11 +175,13 @@ impl Parse for MetricGlobalArgs {
                     func = Some(Ident::new(&value.value(), value.span()));
                 },
                 "const_labels" => {
-                    let group = parse_parens(input)?.content;
+                    let group;
+                    parenthesized!(group in input);
                     const_labels = Some(group.parse_terminated(MetricStaticDim::parse)?);
                 },
                 "labels" => {
-                    let group = parse_parens(input)?.content;
+                    let group;
+                    parenthesized!(group in input);
                     dims = Some(group.parse_terminated(MetricDim::parse)?);
                 },
                 "namespace" => {
@@ -233,9 +236,13 @@ impl Parse for MetricDim {
         let (typ, enum_def, expr) = if input.parse::<Token![:]>().is_ok() {
             (
                 Some(input.parse::<Type>()?),
-                parse_brackets(&input)
-                    .ok()
-                    .map(|group| group.content.parse_terminated(Ident::parse))
+                input
+                    .peek(Bracket)
+                    .then(|| {
+                        let group;
+                        bracketed!(group in input);
+                        group.parse_terminated(Ident::parse)
+                    })
                     .transpose()?,
                 input
                     .parse::<Token![=]>()
@@ -271,11 +278,13 @@ impl Parse for MetricArgs {
                     desc = Some(input.parse()?);
                 },
                 "labels" => {
-                    let group = parse_parens(input)?.content;
+                    let group;
+                    parenthesized!(group in input);
                     dims = Some(group.parse_terminated(MetricDim::parse)?);
                 },
                 "buckets" => {
-                    let group = parse_parens(input)?.content;
+                    let group;
+                    parenthesized!(group in input);
                     buckets = Some(group.parse()?);
                 },
                 "add_methods" => {
