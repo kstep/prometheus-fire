@@ -17,3 +17,5 @@ syn = { version = "1", features = ["full"] }
 
 [features]
 jsonrpc = []
+jsonrpsee = []
+default = []

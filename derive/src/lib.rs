@@ -1,3 +1,6 @@
+#[cfg(all(feature = "jsonrpsee", feature = "jsonrpc"))]
+compile_error!("`jsonrpc` and `jsonrpsee` features are mutually exclusive, please enable only one");
+
 extern crate core;
 extern crate proc_macro;
 
@@ -654,6 +657,27 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
     });
 
+    #[cfg(feature = "jsonrpsee")]
+    let jsonrpc_impl = {
+        let jsonrpc_name = format_ident!("{name}RpcImpl");
+        quote! {
+            pub struct #jsonrpc_name;
+            impl ::prometheus_fire::MetricsRpc for #jsonrpc_name {
+                fn metrics(&self) -> ::std::result::Result<String, ::prometheus_fire::JsonRpcError> {
+                    <#name as ::prometheus_fire::MetricsService>::gather()
+                        .map_err(::prometheus_fire::JsonRpcCallError::from_std_error)
+                        .map_err(::prometheus_fire::JsonRpcError::Call)
+                }
+            }
+
+            impl #name {
+                pub fn rpc_impl(&self) -> #jsonrpc_name {
+                    #jsonrpc_name
+                }
+            }
+        }
+    };
+
     #[cfg(feature = "jsonrpc")]
     let jsonrpc_impl = {
         let jsonrpc_name = format_ident!("{name}RpcImpl");
@@ -679,7 +703,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
     };
 
-    #[cfg(not(feature = "jsonrpc"))]
+    #[cfg(not(all(feature = "jsonrpc", feature = "jsonrpsee")))]
     let jsonrpc_impl = quote! {};
 
     let tokens = quote! {
