@@ -11,13 +11,15 @@ edition = "2021"
 hyper = { version = "0.14", features = ["server", "tcp", "http1"], optional = true }
 jsonrpc-derive = { version = "18", optional = true }
 jsonrpc-core = { version = "18", optional = true }
+jsonrpsee = { version = "0.14", optional = true, features = ["macros", "http-server"] }
 lazy_static = "1.4.0"
 log = "0.4"
 prometheus = "0.13"
-prometheus-fire-derive = { optional = true, path = "../derive" }
+prometheus-fire-derive = { optional = true, path = "../derive", version = "0.1.0" }
 
 [features]
 derive = ["prometheus-fire-derive"]
 server = ["hyper"]
 jsonrpc = ["derive", "jsonrpc-derive", "jsonrpc-core", "prometheus-fire-derive/jsonrpc"]
+jsonrpsee = ["prometheus-fire-derive/jsonrpsee", "dep:jsonrpsee"]
 default = ["derive"]

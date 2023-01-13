@@ -1,3 +1,6 @@
+#[cfg(all(feature = "jsonrpsee", feature = "jsonrpc"))]
+compile_error!("`jsonrpc` and `jsonrpsee` features are mutually exclusive, please enable only one");
+
 use prometheus::TextEncoder;
 
 pub use lazy_static::lazy_static;
@@ -9,9 +12,18 @@ pub use prometheus::{
 
 #[cfg(feature = "jsonrpc")]
 pub use jsonrpc_core::{Error as JsonRpcError, ErrorCode as JsonRpcErrorCode};
+#[cfg(feature = "jsonrpsee")]
+pub use jsonrpsee::{core::Error as JsonRpcError, types::error::CallError as JsonRpcCallError};
 
 #[cfg(feature = "derive")]
 pub use prometheus_fire_derive::Metrics;
+
+#[cfg(feature = "jsonrpsee")]
+#[jsonrpsee::proc_macros::rpc(server)]
+pub trait MetricsRpc {
+    #[method(name = "metrics")]
+    fn metrics(&self) -> jsonrpsee::core::RpcResult<String>;
+}
 
 #[cfg(feature = "jsonrpc")]
 #[jsonrpc_derive::rpc(server)]
