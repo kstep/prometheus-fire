@@ -11,7 +11,7 @@ edition = "2021"
 hyper = { version = "0.14", features = ["server", "tcp", "http1"], optional = true }
 jsonrpc-derive = { version = "18", optional = true }
 jsonrpc-core = { version = "18", optional = true }
-jsonrpsee = { version = "0.14", optional = true, features = ["macros", "http-server"] }
+jsonrpsee = { version = "0.16", optional = true, features = ["macros", "server"] }
 lazy_static = "1.4.0"
 log = "0.4"
 prometheus = "0.13"
