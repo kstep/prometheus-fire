@@ -1,6 +1,3 @@
-#[cfg(all(feature = "jsonrpsee", feature = "jsonrpc"))]
-compile_error!("`jsonrpc` and `jsonrpsee` features are mutually exclusive, please enable only one");
-
 extern crate core;
 extern crate proc_macro;
 
@@ -657,7 +654,12 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
     });
 
-    #[cfg(feature = "jsonrpsee")]
+    #[cfg(all(feature = "jsonrpsee", feature = "jsonrpc"))]
+    let jsonrpc_impl = quote! {
+        compile_error!("`jsonrpc` and `jsonrpsee` features are mutually exclusive, please enable only one");
+    };
+
+    #[cfg(all(feature = "jsonrpsee", not(feature = "jsonrpc")))]
     let jsonrpc_impl = {
         let jsonrpc_name = format_ident!("{name}RpcImpl");
         quote! {
@@ -678,7 +680,7 @@ fn expand_metrics(input: DeriveInput) -> Result<TokenStream, syn::Error> {
         }
     };
 
-    #[cfg(feature = "jsonrpc")]
+    #[cfg(all(feature = "jsonrpc", not(feature = "jsonrpsee")))]
     let jsonrpc_impl = {
         let jsonrpc_name = format_ident!("{name}RpcImpl");
         quote! {

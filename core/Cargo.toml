@@ -15,7 +15,7 @@ jsonrpsee = { version = "0.14", optional = true, features = ["macros", "http-ser
 lazy_static = "1.4.0"
 log = "0.4"
 prometheus = "0.13"
-prometheus-fire-derive = { optional = true, path = "../derive" }
+prometheus-fire-derive = { optional = true, path = "../derive", version = "0.1.0" }
 
 [features]
 derive = ["prometheus-fire-derive"]
